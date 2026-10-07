@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>อัลบั้มรูปงานแต่ง</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@400;600&family=Noto+Sans+Thai:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ===== ธีม: ปรับสีตรงนี้ได้เลย ===== */
+  :root{
+    --bg:#faf7f2; --card:#fff; --ink:#2e2a26; --muted:#8b8178;
+    --gold:#b08d57; --line:#eae3d9; --radius:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{background:var(--bg);color:var(--ink);font-family:"Noto Sans Thai",sans-serif;padding-bottom:110px}
+
+  /* ---- ส่วนหัว ---- */
+  header{text-align:center;padding:44px 20px 28px}
+  header .eyebrow{font-size:12px;letter-spacing:.28em;color:var(--gold);text-transform:uppercase}
+  header h1{font-family:"Noto Serif Thai",serif;font-size:32px;font-weight:600;margin:12px 0 6px;line-height:1.35}
+  header .date{color:var(--muted);font-size:14px}
+  header .hint{margin-top:18px;font-size:13px;color:var(--muted)}
+
+  /* ---- ตารางรูป ---- */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:0 4px}
+  @media(min-width:700px){.grid{grid-template-columns:repeat(5,1fr);gap:8px;padding:0 8px}}
+  .cell{position:relative;aspect-ratio:1;background:var(--line);border-radius:8px;overflow:hidden;cursor:pointer}
+  .cell img{width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .4s}
+  .cell img.on{opacity:1}
+
+  .empty{text-align:center;color:var(--muted);padding:60px 24px;font-size:14px;line-height:1.9}
+
+  /* ---- ปุ่มเพิ่มรูป (ลอยล่างจอ) ---- */
+  .bar{position:fixed;left:0;right:0;bottom:0;padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+       background:linear-gradient(to top,var(--bg) 65%,transparent);display:flex;justify-content:center;z-index:40}
+  .btn{background:var(--gold);color:#fff;border:0;border-radius:999px;padding:16px 34px;font-size:16px;
+       font-family:inherit;font-weight:500;box-shadow:0 8px 24px rgba(176,141,87,.35);cursor:pointer}
+  .btn:disabled{opacity:.6}
+
+  /* ---- แถบสถานะอัปโหลด ---- */
+  #status{position:fixed;top:0;left:0;right:0;background:var(--ink);color:#fff;text-align:center;
+          padding:12px;font-size:14px;transform:translateY(-100%);transition:.3s;z-index:60}
+  #status.show{transform:translateY(0)}
+
+  /* ---- หน้าดูรูปเต็ม ---- */
+  #viewer{position:fixed;inset:0;background:rgba(20,18,16,.96);display:none;
+          flex-direction:column;align-items:center;justify-content:center;z-index:50;padding:20px}
+  #viewer.show{display:flex}
+  #viewer img{max-width:100%;max-height:72vh;border-radius:10px}
+  .tools{display:flex;gap:12px;margin-top:22px}
+  .tools a,.tools button{background:#fff;color:var(--ink);border:0;border-radius:999px;padding:14px 26px;
+        font-family:inherit;font-size:15px;text-decoration:none;cursor:pointer}
+  .tools .ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4)}
+</style>
+</head>
+<body>
+
+<div id="status"></div>
+
+<header>
+  <div class="eyebrow">Our Wedding</div>
+  <!-- 🔴 แก้ชื่อกับวันที่ตรงนี้ -->
+  <h1> Kate &amp; Tio </h1>
+  <div class="date">22 DECEMBER 2026</div>
+  <p class="hint">ถ่ายรูปสนุก ๆ ในงานแล้วแชร์กันตรงนี้เลย<br>แตะที่รูปเพื่อบันทึกลงเครื่องได้</p>
+  <p class="hint">Have fun taking photos at the event and share them right here.
+<br>Tap on a photo to save it to your device.</p>
+</header>
+
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty" style="display:none">ยังไม่มีรูปเลย<br>เป็นคนแรกที่แชร์รูปกันเถอะ 💐</div>
+
+<div class="bar">
+  <button class="btn" id="pick">📷 เพิ่มรูปของคุณ/Add your photo</button>
+  <input type="file" id="file" accept="image/*" multiple hidden>
+</div>
+
+<div id="viewer">
+  <img id="big" alt="">
+  <div class="tools">
+    <a id="save" download>⬇️ บันทึกรูป</a>
+    <button class="ghost" id="close">ปิด</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ============ 🔴 ใส่ค่าจาก Supabase ตรงนี้ ============ */
+const SUPABASE_URL = "https://xvyzsrmuezearmcndrdk.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2eXpzcm11ZXplYXJtY25kcmRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDM5OTEsImV4cCI6MjEwMzkxOTk5MX0.2iLdQ6mevxWecISyRHN75LO7B5tyXNA8r82E_dyEiTI";
+
+/* ==================================================== */
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const grid = document.getElementById('grid');
+const statusBar = document.getElementById('status');
+
+// แสดงข้อความแจ้งเตือนด้านบน
+let timer;
+function say(msg, hold = 2500){
+  statusBar.textContent = msg;
+  statusBar.classList.add('show');
+  clearTimeout(timer);
+  if(hold) timer = setTimeout(()=>statusBar.classList.remove('show'), hold);
+}
+
+// สร้าง URL ของรูปจาก path ในที่เก็บไฟล์
+const urlOf = p => `${SUPABASE_URL}/storage/v1/object/public/photos/${p}`;
+
+/* ---------- โหลดรูปทั้งหมดมาแสดง ---------- */
+async function loadPhotos(){
+  const { data, error } = await sb.from('photos')
+    .select('path').order('created_at', { ascending:false });
+  if(error){ say('โหลดรูปไม่สำเร็จ ลองรีเฟรชอีกครั้ง'); return; }
+
+  grid.innerHTML = '';
+  document.getElementById('empty').style.display = data.length ? 'none' : 'block';
+  data.forEach(row => addCell(row.path));
+}
+
+function addCell(path){
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  const img = new Image();
+  img.loading = 'lazy';
+  img.src = urlOf(path);
+  img.onload = ()=> img.classList.add('on');
+  cell.appendChild(img);
+  cell.onclick = ()=> openViewer(path);
+  grid.appendChild(cell);
+}
+
+/* ---------- ย่อรูปก่อนอัป (กันเน็ตในงานตัน) ---------- */
+function shrink(file, max = 1600, quality = .82){
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = ()=>{
+      let { width:w, height:h } = img;
+      if(Math.max(w,h) > max){
+        const s = max / Math.max(w,h);
+        w = Math.round(w*s); h = Math.round(h*s);
+      }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      c.toBlob(b => resolve(b || file), 'image/jpeg', quality);
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = ()=> resolve(file);   // ถ้าย่อไม่ได้ ก็ส่งไฟล์เดิม
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+/* ---------- อัปโหลด ---------- */
+document.getElementById('pick').onclick = ()=> document.getElementById('file').click();
+
+document.getElementById('file').onchange = async e => {
+  const files = [...e.target.files];
+  if(!files.length) return;
+  const btn = document.getElementById('pick');
+  btn.disabled = true;
+  let done = 0;
+
+  for(const f of files){
+    say(`กำลังอัปโหลด ${done+1}/${files.length} ...`, 0);
+    try{
+      const blob = await shrink(f);
+      const path = `${Date.now()}-${Math.random().toString(36).slice(2,8)}.jpg`;
+
+      const up = await sb.storage.from('photos')
+        .upload(path, blob, { contentType:'image/jpeg', cacheControl:'31536000' });
+      if(up.error) throw up.error;
+
+      await sb.from('photos').insert({ path });
+      grid.prepend(Object.assign(document.createElement('div'),{})); // เผื่อ layout
+      grid.firstChild.remove();
+      addCellTop(path);
+      done++;
+    }catch(err){ console.error(err); }
+  }
+
+  btn.disabled = false;
+  e.target.value = '';
+  document.getElementById('empty').style.display = 'none';
+  say(done ? `เพิ่มรูปสำเร็จ ${done} รูป ขอบคุณนะคะ 💛` : 'อัปโหลดไม่สำเร็จ ลองใหม่อีกครั้ง');
+};
+
+// เพิ่มรูปใหม่ไว้บนสุด
+function addCellTop(path){
+  addCell(path);
+  grid.prepend(grid.lastChild);
+}
+
+/* ---------- ดูรูปเต็ม + บันทึกลงเครื่อง ---------- */
+const viewer = document.getElementById('viewer');
+function openViewer(path){
+  document.getElementById('big').src = urlOf(path);
+  // ใส่ ?download= เพื่อให้เบราว์เซอร์บันทึกไฟล์แทนการเปิดดู
+  const link = document.getElementById('save');
+  link.href = urlOf(path) + '?download=wedding-' + path;
+  viewer.classList.add('show');
+}
+document.getElementById('close').onclick = ()=> viewer.classList.remove('show');
+viewer.onclick = e => { if(e.target === viewer) viewer.classList.remove('show'); };
+
+/* ---------- รูปใหม่จากแขกคนอื่นเด้งขึ้นเอง ---------- */
+sb.channel('new-photos')
+  .on('postgres_changes', { event:'INSERT', schema:'public', table:'photos' },
+      p => addCellTop(p.new.path))
+  .subscribe();
+
+loadPhotos();
+</script>
+</body>
+</html>
